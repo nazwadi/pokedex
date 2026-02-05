@@ -3,8 +3,9 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"math/rand/v2"
+	"math/rand"
 	"os"
 	"strings"
 
@@ -39,6 +40,11 @@ func startRepl(cfg *Config) {
 			description: "Displays a help message",
 			callback:    commandHelp,
 		},
+		"inspect": {
+			name:        "inspect",
+			description: "Inspect the pokemon",
+			callback:    commandInspect,
+		},
 		"map": {
 			name:        "map",
 			description: "Map a Pokedex using the given arguments",
@@ -48,6 +54,11 @@ func startRepl(cfg *Config) {
 			name:        "mapb",
 			description: "Map backwards a Pokedex using the given arguments",
 			callback:    commandMapb,
+		},
+		"pokedex": {
+			name:        "pokedex",
+			description: "Pokedex using the given arguments",
+			callback:    commandPokedex,
 		},
 	}
 	fmt.Println("Welcome to the Pokedex!")
@@ -79,38 +90,43 @@ func cleanInput(text string) []string {
 }
 
 func commandCatch(cfg *Config, args []string) error {
+	if len(args) == 0 {
+		return errors.New("no pokemon name given")
+	}
 	pokemonName := args[0]
-	var url string = "https://pokeapi.co/api/v2/pokemon/" + pokemonName
-	var pokemonResp pokeapi.Pokemon
+	var url = "https://pokeapi.co/api/v2/pokemon/" + pokemonName
+	var pokemon pokeapi.Pokemon
+	var err error
 
 	fmt.Printf("Throwing a Pokeball at %s...\n", pokemonName)
 
 	data, ok := cfg.cache.Get(url)
 	if ok {
-		err := json.Unmarshal(data, &pokemonResp)
+		err := json.Unmarshal(data, &pokemon)
 		if err != nil {
 			return err
 		}
 	} else {
-		pokemonResp, err := cfg.client.CatchPokemon(&url)
+		pokemon, err = cfg.client.CatchPokemon(&url)
 		if err != nil {
 			return err
 		}
 		var jsonData []byte
-		jsonData, err = json.Marshal(pokemonResp)
+		jsonData, err = json.Marshal(pokemon)
 		if err != nil {
 			return err
 		}
 		cfg.cache.Add(url, jsonData)
 	}
-	var chance int = rand.IntN(100)
-	if chance > pokemonResp.BaseExperience {
-		fmt.Printf("%s was caught!\n", pokemonName)
-		cfg.pokemon[pokemonName] = pokemonResp
+	res := rand.Intn(pokemon.BaseExperience)
+	if res > 40 {
+		fmt.Printf("%s escaped!\n", pokemonName)
 		return nil
 	}
-	fmt.Printf("%s escaped!\n", pokemonName)
 
+	fmt.Printf("%s was caught!\n", pokemonName)
+	fmt.Println("You may now inspect it with the inspect command.")
+	cfg.pokemon[pokemon.Name] = pokemon
 	return nil
 }
 
@@ -211,5 +227,35 @@ func commandHelp(cfg *Config, _ []string) error {
 	fmt.Println("mapb: Display the previous page of locations")
 	fmt.Println("exit: Exit the Pokedex")
 	fmt.Println()
+	return nil
+}
+
+func commandInspect(cfg *Config, args []string) error {
+	pokemonName := args[0]
+	data, ok := cfg.pokemon[pokemonName]
+	if ok {
+		fmt.Printf("Name: %s\n", data.Name)
+		fmt.Printf("Height: %d\n", data.Height)
+		fmt.Printf("Weight: %d\n", data.Weight)
+		fmt.Println("Stats:")
+		for _, stat := range data.Stats {
+			fmt.Printf("  -%s: %d\n", stat.Stat.Name, stat.BaseStat)
+		}
+		fmt.Println("Types:")
+		for _, pType := range data.Types {
+			fmt.Printf("  - %s\n", pType.Type.Name)
+		}
+		return nil
+	}
+
+	fmt.Println("you have not caught that pokemon")
+	return nil
+}
+
+func commandPokedex(cfg *Config, args []string) error {
+	fmt.Println("Your Pokedex:")
+	for _, pokemon := range cfg.pokemon {
+		fmt.Printf(" - %s\n", pokemon.Name)
+	}
 	return nil
 }
